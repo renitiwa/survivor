@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ダダサバ風サバイバルゲーム - 超強化版</title>
+    <title>ダダサバ風サバイバルゲーム - 超サクサク版</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #1a252f; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
         canvas { display: block; }
@@ -21,7 +21,6 @@
         #level-up-modal { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); display: none; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto; z-index: 20; }
         #level-up-modal h2 { color: #f1c40f; font-family: sans-serif; font-size: 32px; margin-bottom: 10px; text-shadow: 2px 2px 4px black; }
         
-        /* 選択肢が増えてもスクロールできるように調整 */
         #skill-choices { display: flex; flex-direction: column; align-items: center; width: 100%; max-height: 75vh; overflow-y: auto; padding-bottom: 20px; }
         .skill-card { background: linear-gradient(135deg, #34495e, #2c3e50); border: 2px solid #f1c40f; border-radius: 10px; width: 80%; max-width: 400px; padding: 15px; margin: 6px 0; color: white; font-family: sans-serif; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.5); flex-shrink: 0; }
         .skill-card:active { transform: scale(0.98); }
@@ -99,7 +98,7 @@
             ctx.fillStyle = isPlayer ? '#2ecc71' : (pct > 0.5 ? '#e74c3c' : '#c0392b'); ctx.fillRect(x - barWidth/2, y, barWidth * pct, barHeight);
         }
 
-        // --- 新スキル「選択肢拡張」追加！ ---
+        // --- スキルDB（ドローン、地雷、レーザー追加） ---
         const SKILL_DB = {
             kunai: { name: 'クナイ', desc: '最も近い敵を自動で狙う' }, 
             forcefield: { name: 'フォース', desc: '周囲に継続ダメージ' },
@@ -111,44 +110,28 @@
             drill: { name: 'ドリル', desc: '敵を貫通し壁で反射' },
             boomerang: { name: 'ブーメラン', desc: '手元に戻る刃を投げる' }, 
             molotov: { name: '火炎瓶', desc: '地面に炎エリア' },
-            atkUp: { name: '強力銃弾', desc: '攻撃力アップ (+30%)' }, // 効果量アップ
+            drone: { name: 'ドローン', desc: '敵を追尾するミサイルを撃つ' }, // ★新規
+            mine: { name: '地雷', desc: '足元に強力な地雷を設置する' }, // ★新規
+            laser: { name: 'レーザー', desc: '敵を貫通する高速レーザー' }, // ★新規
+            atkUp: { name: '強力銃弾', desc: '攻撃力アップ (+30%)' }, 
             speedUp: { name: 'スニーカー', desc: '移動速度アップ (+20%)' }, 
             hpUp: { name: 'フィットネス', desc: '最大HPアップ (+30%)' }, 
             armor: { name: '防弾チョッキ', desc: '受けるダメージを軽減' },
-            expUp: { name: '経験値の書', desc: '獲得経験値アップ (+30%)' }, // 効果量アップ
-            choiceUp: { name: '選択肢拡張', desc: '次からのレベルアップ選択肢が1つ増える' } // ★新規
+            expUp: { name: '経験値の書', desc: '獲得経験値アップ (+30%)' }, 
+            choiceUp: { name: '選択肢拡張', desc: '次からのレベルアップ選択肢が1つ増える' }
         };
-
-        class DamageText {
-            constructor(x, y, amount, color) {
-                this.x = x + (Math.random()-0.5)*15; this.y = y + (Math.random()-0.5)*10;
-                this.amount = Math.ceil(amount); this.color = color;
-                this.life = 40; this.maxLife = 40; this.vy = -1.5;
-            }
-            update() { this.y += this.vy; this.life--; }
-            draw() {
-                if(!isVisible(this.x, this.y, 20)) return;
-                let cx = this.x - camera.x, cy = this.y - camera.y;
-                ctx.globalAlpha = this.life / this.maxLife;
-                ctx.fillStyle = this.color; ctx.font = 'bold 12px sans-serif'; ctx.strokeStyle = 'black';
-                ctx.lineWidth = 2; ctx.textAlign = 'center';
-                ctx.strokeText(this.amount, cx, cy); ctx.fillText(this.amount, cx, cy);
-                ctx.globalAlpha = 1.0;
-            }
-        }
 
         class Player {
             constructor() {
                 this.x = WORLD_WIDTH / 2; this.y = WORLD_HEIGHT / 2; this.radius = 15; this.color = '#3498db';
                 this.baseSpeed = 3.5; this.baseMaxHp = 100; this.hp = this.baseMaxHp;
-                this.level = 1; this.exp = 0; this.expToNext = 5; 
+                this.level = 1; this.exp = 0; 
+                this.expToNext = 2; // ★初期の必要経験値を大幅に削減
                 this.skills = { kunai: 1 };
                 this.bossExpBonus = 0;
-                this.accumulatedDamage = 0; 
             }
             get speed() { return this.baseSpeed * (1 + (this.skills.speedUp || 0) * 0.20); }
             get maxHp() { return this.baseMaxHp * (1 + (this.skills.hpUp || 0) * 0.30); }
-            // 攻撃力と経験値の伸びを強化 (ベース0.3)
             get atkMult() { return 1 + (this.skills.atkUp || 0) * 0.3; }
             get expMult() { return (1 + (this.skills.expUp || 0) * 0.3 + (this.level - 1) * 0.1 + this.bossExpBonus); }
 
@@ -171,20 +154,16 @@
                 drawHealthBar(ctx, cx, cy - this.radius - 10, this.hp, this.maxHp, 40, true);
             }
             takeDamage(amount) {
-                let actualDamage = amount * (1 - (this.skills.armor || 0) * 0.15);
-                this.hp -= actualDamage; this.accumulatedDamage += actualDamage;
-                if (this.accumulatedDamage >= 2) {
-                    damageTexts.push(new DamageText(this.x, this.y - 20, this.accumulatedDamage, '#e74c3c'));
-                    this.accumulatedDamage = 0;
-                }
+                this.hp -= amount * (1 - (this.skills.armor || 0) * 0.15);
                 if (this.hp <= 0) gameOver();
             }
             addExp(amount) {
                 this.exp += amount * this.expMult;
                 if (this.exp >= this.expToNext) {
                     this.exp -= this.expToNext; this.level++; 
-                    this.expToNext = Math.floor(this.expToNext * 1.5);
-                    this.hp = Math.min(this.hp + this.maxHp * 0.2, this.maxHp); // レベルアップで20%回復
+                    // ★レベルアップごとの経験値の増加量を緩やかに（必要経験値が少ない状態を長く維持）
+                    this.expToNext = Math.floor(this.expToNext * 1.3) + 2;
+                    this.hp = Math.min(this.hp + this.maxHp * 0.2, this.maxHp); 
                     document.getElementById('level-display').innerText = this.level; triggerLevelUp();
                 }
                 document.getElementById('exp-bar').style.width = ((this.exp / this.expToNext) * 100) + '%';
@@ -216,9 +195,7 @@
                 if (this.hp < this.maxHp) drawHealthBar(ctx, cx, cy - this.radius - 8, this.hp, this.maxHp, this.radius * 2);
             }
             takeDamage(amount) {
-                this.hp -= amount;
-                let color = this.isSpecialBoss ? '#f1c40f' : '#ffffff';
-                damageTexts.push(new DamageText(this.x, this.y - this.radius, amount, color));
+                this.hp -= amount; // ダメージ表記ポップアップ処理を削除
             }
         }
 
@@ -239,17 +216,34 @@
             constructor(x, y, vx, vy, speed, radius, color, damage, life, type = 'normal', pierce = 0) {
                 this.x = x; this.y = y; this.radius = radius; this.color = color; this.damage = damage; this.life = life; this.maxLife = life;
                 this.type = type; this.pierce = pierce; this.hitEnemies = new Set(); this.speed = speed;
+                this.target = null; // ドローンのホーミング用ターゲット
                 const dist = Math.hypot(vx, vy);
-                if(dist > 0) { this.vx = (vx/dist)*speed; this.vy = (vy/dist)*speed; } else { this.vx = 0; this.vy = speed; }
+                if(dist > 0) { this.vx = (vx/dist)*speed; this.vy = (vy/dist)*speed; } else { this.vx = vx; this.vy = vy; }
             }
             update() {
-                if(this.type === 'gravity') this.vy += 0.4;
-                else if(this.type === 'boomerang' && this.life < this.maxLife * 0.6) {
+                if (this.type === 'gravity') this.vy += 0.4;
+                else if (this.type === 'boomerang' && this.life < this.maxLife * 0.6) {
                     const dist = Math.hypot(player.x - this.x, player.y - this.y);
                     if(dist > 0) { this.vx = ((player.x-this.x)/dist)*this.speed; this.vy = ((player.y-this.y)/dist)*this.speed; } this.hitEnemies.clear();
                 }
+                else if (this.type === 'homing' && this.target && this.target.hp > 0) {
+                    // ドローンのホーミング軌道計算
+                    let dx = this.target.x - this.x, dy = this.target.y - this.y;
+                    let dist = Math.hypot(dx, dy);
+                    if (dist > 0) {
+                        this.vx = this.vx * 0.9 + (dx / dist * this.speed) * 0.1;
+                        this.vy = this.vy * 0.9 + (dy / dist * this.speed) * 0.1;
+                        let curSpeed = Math.hypot(this.vx, this.vy);
+                        if(curSpeed > 0) { this.vx = (this.vx/curSpeed)*this.speed; this.vy = (this.vy/curSpeed)*this.speed; }
+                    }
+                }
+                else if (this.type === 'mine') {
+                    this.vx = 0; this.vy = 0; // 地雷は動かない
+                }
+                
                 this.x += this.vx; this.y += this.vy; this.life--;
-                if(this.type === 'bounce') {
+                
+                if (this.type === 'bounce') {
                     if (this.x - this.radius < camera.x || this.x + this.radius > camera.x + width) { this.vx *= -1; this.x = Math.max(camera.x+this.radius, Math.min(camera.x+width-this.radius, this.x)); }
                     if (this.y - this.radius < camera.y || this.y + this.radius > camera.y + height) { this.vy *= -1; this.y = Math.max(camera.y+this.radius, Math.min(camera.y+height-this.radius, this.y)); }
                 }
@@ -257,6 +251,7 @@
             draw() {
                 if(!isVisible(this.x, this.y, this.radius)) return;
                 ctx.beginPath(); ctx.arc(this.x - camera.x, this.y - camera.y, this.radius, 0, Math.PI * 2); ctx.fillStyle = this.color; ctx.fill();
+                if (this.type === 'mine') { ctx.strokeStyle = '#f1c40f'; ctx.lineWidth = 2; ctx.stroke(); } // 地雷に黄色い枠線
             }
         }
 
@@ -276,24 +271,35 @@
 
         class Gem {
             constructor(x, y, value) {
-                this.x = x; this.y = y; this.radius = 6 + (value > 2 ? 4 : 0); this.color = value > 2 ? '#3498db' : '#2ecc71'; this.value = value; this.magnetized = false;
+                this.x = x; this.y = y; this.value = value; this.magnetized = false;
+                // ★経験値の見た目（色・大きさ）を価値に応じて変更
+                if (value >= 50) {
+                    this.radius = 10; this.color = '#f1c40f'; // ゴールド (ボス)
+                } else if (value >= 6) {
+                    this.radius = 8; this.color = '#00ffff'; // 水色/ダイヤ色 (紫タンク用)
+                } else if (value > 2) {
+                    this.radius = 6; this.color = '#3498db'; // 青 (中型)
+                } else {
+                    this.radius = 5; this.color = '#2ecc71'; // 緑 (小型)
+                }
             }
             draw() {
                 if(!isVisible(this.x, this.y, this.radius)) return;
                 let cx = this.x - camera.x, cy = this.y - camera.y;
+                // ひし形（ダイヤ型）の描画
                 ctx.beginPath(); ctx.moveTo(cx, cy - this.radius); ctx.lineTo(cx + this.radius, cy); ctx.lineTo(cx, cy + this.radius); ctx.lineTo(cx - this.radius, cy);
                 ctx.fillStyle = this.color; ctx.fill();
             }
         }
 
-        let player, enemies, projectiles, effects, gems, items, damageTexts;
+        let player, enemies, projectiles, effects, gems, items;
         let isGameOver = false, isPaused = false, frameCount = 0, gameTime = 0;
         let cooldowns = {};
         
         let globalEnemyStatMultiplier = 1; let lastWaveResetTime = 0; let isBossStage = false;
 
         function initGame() {
-            player = new Player(); enemies = []; projectiles = []; effects = []; gems = []; items = []; damageTexts = [];
+            player = new Player(); enemies = []; projectiles = []; effects = []; gems = []; items = [];
             isGameOver = false; isPaused = false; frameCount = 0; gameTime = 0;
             globalEnemyStatMultiplier = 1; lastWaveResetTime = 0; isBossStage = false;
             for(let key in SKILL_DB) cooldowns[key] = 0;
@@ -301,7 +307,7 @@
             document.getElementById('exp-bar').style.width = '0%'; requestAnimationFrame(gameLoop);
         }
 
-        // 獲得経験値(exp)を全体的に底上げ
+        // 紫の敵(tank)の獲得経験値(exp)は6。Gemの生成時に水色(ダイヤ色)になる
         const ENEMY_TYPES = {
             normal: { radius: 12, speed: 1.0, color: '#e74c3c', hp: 4, damage: 5, exp: 2 },
             fast: { radius: 10, speed: 1.8, color: '#f1c40f', hp: 3, damage: 3, exp: 2 },
@@ -431,30 +437,49 @@
                 }
                 cooldowns.molotov = frameCount;
             }
+            // ★追加武器：ドローン (ホーミング弾)
+            if (player.skills.drone && frameCount - cooldowns.drone >= Math.max(25, 150 - player.skills.drone * 20)) {
+                let t = getClosestEnemy(); if (t) {
+                    let count = 1 + Math.floor(player.skills.drone / 2);
+                    for(let i=0; i<count; i++) {
+                        let p = new Projectile(player.x, player.y - 20, (Math.random()-0.5)*10, -5-Math.random()*5, 8, 6, '#9b59b6', 7 * mult * (1+player.skills.drone*0.2), 200, 'homing', 1);
+                        p.target = t; // ターゲット情報を渡す
+                        projectiles.push(p);
+                    }
+                    cooldowns.drone = frameCount;
+                }
+            }
+            // ★追加武器：地雷
+            if (player.skills.mine && frameCount - cooldowns.mine >= Math.max(40, 240 - player.skills.mine * 30)) {
+                let count = 1 + Math.floor(player.skills.mine / 3);
+                for(let i=0; i<count; i++) {
+                    // 足元に速度0のProjectileとして配置
+                    projectiles.push(new Projectile(player.x + (Math.random()-0.5)*40, player.y + (Math.random()-0.5)*40, 0, 0, 0, 12, '#c0392b', 25 * mult * (1+player.skills.mine*0.5), 600, 'mine', 1));
+                }
+                cooldowns.mine = frameCount;
+            }
+            // ★追加武器：レーザー (高速貫通)
+            if (player.skills.laser && frameCount - cooldowns.laser >= Math.max(30, 150 - player.skills.laser * 20)) {
+                let t = getClosestEnemy(); if (t) {
+                    projectiles.push(new Projectile(player.x, player.y, t.x - player.x, t.y - player.y, 40, 4 + player.skills.laser, '#00ffff', 12 * mult * (1+player.skills.laser*0.3), 60, 'laser', 999));
+                    cooldowns.laser = frameCount;
+                }
+            }
         }
 
-        // --- ★レベルアップ処理（確定枠＋選択肢増加） ---
         function triggerLevelUp() {
             isPaused = true; joystickBase.style.display = 'none';
-            
-            // 選択肢の数 (基本3枠 + choiceUpスキルレベル)
             let numChoices = 3 + (player.skills.choiceUp || 0);
-            
             let available = Object.keys(SKILL_DB); 
             let choices = []; 
-            
-            // すでに取得しているスキルのリスト
             let ownedSkills = Object.keys(player.skills);
             
-            // ★1枠目：取得済みスキルの中から必ず1つランダムに出現させる
             if (ownedSkills.length > 0) {
                 let guaranteed = ownedSkills[Math.floor(Math.random() * ownedSkills.length)];
                 choices.push(guaranteed);
-                // availableから除外して重複を防ぐ
                 available.splice(available.indexOf(guaranteed), 1);
             }
             
-            // ★残りの枠：全スキル（確定枠以外）からランダム
             while (choices.length < numChoices && available.length > 0) {
                 let idx = Math.floor(Math.random() * available.length);
                 choices.push(available.splice(idx, 1)[0]);
@@ -507,7 +532,7 @@
             
             if (isPaused) { 
                 drawBackgroundGrid(); player.draw(); enemies.forEach(e => e.draw()); drawMinimap(); 
-                damageTexts.forEach(dt => dt.draw()); return; 
+                return; 
             }
 
             frameCount++;
@@ -542,6 +567,10 @@
                     if (!p.hitEnemies.has(e) && Math.hypot(p.x - e.x, p.y - e.y) < p.radius + e.radius) {
                         e.takeDamage(p.damage); p.hitEnemies.add(e); 
                         if (p.type === 'rpg') effects.push(new Effect(p.x, p.y, 45, 'rgba(231, 76, 60, 0.7)', 20, 'explosion', p.damage));
+                        if (p.type === 'mine') { // 地雷の爆発
+                            effects.push(new Effect(p.x, p.y, 80 + (player.skills.mine||1)*15, 'rgba(231, 76, 60, 0.9)', 30, 'explosion', p.damage));
+                            p.life = 0; // 地雷は1回で消滅
+                        }
                         if (p.type === 'bounce') { p.vx *= -1; p.vy *= -1; p.hitEnemies.clear(); }
                         if (p.pierce <= p.hitEnemies.size) { projectiles.splice(i, 1); break; }
                     }
@@ -583,11 +612,6 @@
                     gems[i].x += (player.x - gems[i].x) / dist * speed; gems[i].y += (player.y - gems[i].y) / dist * speed;
                     if (dist < player.radius + gems[i].radius + speed) { player.addExp(gems[i].value); gems.splice(i, 1); }
                 }
-            }
-
-            for (let i = damageTexts.length - 1; i >= 0; i--) {
-                damageTexts[i].update(); damageTexts[i].draw();
-                if (damageTexts[i].life <= 0) damageTexts.splice(i, 1);
             }
 
             drawMinimap();
