@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ダダサバ風サバイバルゲーム</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #2c3e50;
+            overflow: hidden;
+            /* スマホの意図しないスクロールやズームを防止 */
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        canvas {
+            display: block;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* UIの裏のタッチ判定を有効にするため */
+        }
+        /* 経験値バー */
+        #exp-bar-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 12px;
+            background: #555;
+        }
+        #exp-bar {
+            width: 0%;
+            height: 100%;
+            background: #f1c40f;
+            transition: width 0.2s;
+        }
+        /* ステータス表示 */
+        #status {
+            position: absolute;
+            top: 20px;
+            left: 10px;
+            color: white;
+            font-family: sans-serif;
+            font-weight: bold;
+            font-size: 16px;
+            text-shadow: 1px 1px 2px black;
+        }
+        /* 仮想ジョイスティック */
+        #joystick-base {
+            position: absolute;
+            width: 120px;
+            height: 120px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            display: none;
+            transform: translate(-50%, -50%); /* 中心をタッチ位置に合わせる */
+        }
+        #joystick-stick {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.6);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            margin-top: -25px;
+            margin-left: -25px;
+        }
+        #game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #e74c3c;
+            font-family: sans-serif;
+            font-size: 40px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px black;
+            display: none;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="exp-bar-container"><div id="exp-bar"></div></div>
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui-layer">
+        <div id="status">
+            LV: <span id="level-display">1</span><br>
+            HP: <span id="hp-display">100</span>
+        </div>
+        <div id="joystick-base">
+            <div id="joystick-stick"></div>
+        </div>
+        <div id="game-over">GAME OVER<br><span style="font-size: 20px; color: white;">画面リロードで再挑戦</span></div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- ジョイスティックの処理 ---
+        const joystickBase = document.getElementById('joystick-base');
+        const joystickStick = document.getElementById('joystick-stick');
+        let isTouching = false;
+        let joyOrigin = { x: 0, y: 0 };
+        let joyVector = { x: 0, y: 0 }; 
+
+        // PC（マウス）とスマホ（タッチ）の両方に対応
+        document.addEventListener('touchstart', handleStart, {passive: false});
+        document.addEventListener('touchmove', handleMove, {passive: false});
+        document.addEventListener('touchend', handleEnd);
+        document.addEventListener('mousedown', handleStart);
+        document.addEventListener('mousemove', handleMove);
+        document.addEventListener('mouseup', handleEnd);
+
+        function handleStart(e) {
+            e.preventDefault();
+            isTouching = true;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            
+            joyOrigin = { x: clientX, y: clientY };
+            joystickBase.style.display = 'block';
+            joystickBase.style.left = clientX + 'px';
+            joystickBase.style.top = clientY + 'px';
+            updateJoystick(clientX, clientY);
+        }
+
+        function handleMove(e) {
+            e.preventDefault();
+            if (!isTouching) return;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            updateJoystick(clientX, clientY);
+        }
+
+        function handleEnd(e) {
+            isTouching = false;
+            joyVector = { x: 0, y: 0 };
+            joystickBase.style.display = 'none';
+            joystickStick.style.transform = `translate(0px, 0px)`;
+        }
+
+        function updateJoystick(clientX, clientY) {
+            let dx = clientX - joyOrigin.x;
+            let dy = clientY - joyOrigin.y;
+            let distance = Math.hypot(dx, dy);
+            let maxDistance = 60; 
+            
+            if (distance > maxDistance) {
+                dx = (dx / distance) * maxDistance;
+                dy = (dy / distance) * maxDistance;
+            }
+            
+            joystickStick.style.transform = `translate(${dx}px, ${dy}px)`;
+            
+            if (distance > 0) {
+                joyVector.x = dx / maxDistance;
+                joyVector.y = dy / maxDistance;
+            } else {
+                joyVector = { x: 0, y: 0 };
+            }
+        }
+
+        // --- PCキーボード操作の処理（おまけ） ---
+        const keys = {};
+        window.addEventListener('keydown', e => keys[e.key] = true);
+        window.addEventListener('keyup', e => keys[e.key] = false);
+
+        // --- ゲームオブジェクト ---
+        class Player {
+            constructor() {
+                this.x = width / 2;
+                this.y = height / 2;
+                this.radius = 15;
+                this.speed = 3;
+                this.color = '#3498db'; // プレイヤーの色(青)
+                this.maxHp = 100;
+                this.hp = this.maxHp;
+                this.level = 1;
+                this.exp = 0;
+                this.expToNext = 5;
+                this.lastShot = 0;
+                this.fireRate = 1200; // 最初は1.2秒に1発
+            }
+            
+            update() {
+                // ジョイスティック入力優先、なければキーボード
+                let moveX = joyVector.x;
+                let moveY = joyVector.y;
+                
+                if (!isTouching) {
+                    moveX = (keys['d'] || keys['ArrowRight'] ? 1 : 0) - (keys['a'] || keys['ArrowLeft'] ? 1 : 0);
+                    moveY = (keys['s'] || keys['ArrowDown'] ? 1 : 0) - (keys['w'] || keys['ArrowUp'] ? 1 : 0);
+                    if (moveX !== 0 && moveY !== 0) {
+                        moveX /= Math.SQRT2;
+                        moveY /= Math.SQRT2;
+                    }
+                }
+
+                this.x += moveX * this.speed;
+                this.y += moveY * this.speed;
+                
+                // 画面外に出ないように制限
+                this.x = Math.max(this.radius, Math.min(width - this.radius, this.x));
+                this.y = Math.max(this.radius, Math.min(height - this.radius, this.y));
+            }
+            
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.closePath();
+            }
+
+            addExp(amount) {
+                this.exp += amount;
+                if (this.exp >= this.expToNext) {
+                    this.exp -= this.expToNext;
+                    this.level++;
+                    this.expToNext = Math.floor(this.expToNext * 1.5); // 次のレベルまでの必要経験値増加
+                    this.hp = this.maxHp; // レベルアップで全回復
+                    this.fireRate = Math.max(200, this.fireRate - 100); // 攻撃速度アップ（限界0.2秒）
+                    document.getElementById('level-display').innerText = this.level;
+                }
+                updateUI();
+            }
+        }
+
+        class Enemy {
+            constructor() {
+                // 画面外のランダムな場所から出現
+                const side = Math.floor(Math.random() * 4);
+                if (side === 0) { this.x = Math.random() * width; this.y = -30; } 
+                else if (side === 1) { this.x = width + 30; this.y = Math.random() * height; }
+                else if (side === 2) { this.x = Math.random() * width; this.y = height + 30; }
+                else { this.x = -30; this.y = Math.random() * height; } 
+                
+                this.radius = 12;
+                this.speed = Math.random() * 0.8 + 0.5; // スピードはランダム
+                this.color = '#e74c3c'; // 敵の色(赤)
+                this.hp = 2;
+            }
+            
+            update(targetX, targetY) {
+                const dx = targetX - this.x;
+                const dy = targetY - this.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist > 0) {
+                    this.x += (dx / dist) * this.speed;
+                    this.y += (dy / dist) * this.speed;
+                }
+            }
+            
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.closePath();
+            }
+        }
+
+        class Bullet {
+            constructor(x, y, targetX, targetY) {
+                this.x = x;
+                this.y = y;
+                this.radius = 6;
+                this.speed = 8;
+                this.color = '#f1c40f'; // 弾の色(黄)
+                const dx = targetX - x;
+                const dy = targetY - y;
+                const dist = Math.hypot(dx, dy);
+                this.vx = (dx / dist) * this.speed;
+                this.vy = (dy / dist) * this.speed;
+                this.life = 100; // 画面内に残り続けないための寿命
+            }
+            
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life--;
+            }
+            
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.closePath();
+            }
+        }
+
+        class Gem {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 5;
+                this.color = '#2ecc71'; // 経験値の色(緑)
+            }
+            
+            draw() {
+                ctx.beginPath();
+                ctx.rect(this.x - this.radius, this.y - this.radius, this.radius*2, this.radius*2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.closePath();
+            }
+        }
+
+        // --- ゲームループと管理 ---
+        let player = new Player();
+        let enemies = [];
+        let bullets = [];
+        let gems = [];
+        let enemySpawnTimer = 0;
+        let isGameOver = false;
+
+        function updateUI() {
+            const pct = (player.exp / player.expToNext) * 100;
+            document.getElementById('exp-bar').style.width = pct + '%';
+            document.getElementById('hp-display').innerText = Math.max(0, Math.floor(player.hp));
+        }
+
+        function gameLoop(timestamp) {
+            if (isGameOver) return;
+            requestAnimationFrame(gameLoop);
+
+            ctx.clearRect(0, 0, width, height);
+            
+            // プレイヤー処理
+            player.update();
+            player.draw();
+            
+            // 敵のスポーン (レベルが上がるとスポーン速度増加)
+            enemySpawnTimer++;
+            let spawnRate = Math.max(20, 100 - player.level * 5); // フレームごと
+            if (enemySpawnTimer > spawnRate) {
+                enemies.push(new Enemy());
+                enemySpawnTimer = 0;
+            }
+            
+            // 自動攻撃
+            if (timestamp - player.lastShot > player.fireRate && enemies.length > 0) {
+                // 最も近い敵を探す
+                let closest = enemies[0];
+                let minDist = Math.hypot(player.x - closest.x, player.y - closest.y);
+                for (let i = 1; i < enemies.length; i++) {
+                    let dist = Math.hypot(player.x - enemies[i].x, player.y - enemies[i].y);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        closest = enemies[i];
+                    }
+                }
+                bullets.push(new Bullet(player.x, player.y, closest.x, closest.y));
+                player.lastShot = timestamp;
+            }
+            
+            // 弾の更新と当たり判定
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                bullets[i].update();
+                bullets[i].draw();
+                
+                if (bullets[i].life <= 0) {
+                    bullets.splice(i, 1);
+                    continue;
+                }
+                
+                let hit = false;
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const dist = Math.hypot(bullets[i].x - enemies[j].x, bullets[i].y - enemies[j].y);
+                    if (dist < bullets[i].radius + enemies[j].radius) {
+                        enemies[j].hp -= 1;
+                        if (enemies[j].hp <= 0) {
+                            gems.push(new Gem(enemies[j].x, enemies[j].y));
+                            enemies.splice(j, 1);
+                        }
+                        hit = true;
+                        break;
+                    }
+                }
+                if (hit) bullets.splice(i, 1);
+            }
+            
+            // 敵の更新とプレイヤーへのダメージ判定
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                enemies[i].update(player.x, player.y);
+                enemies[i].draw();
+                
+                const dist = Math.hypot(player.x - enemies[i].x, player.y - enemies[i].y);
+                if (dist < player.radius + enemies[i].radius) {
+                    player.hp -= 0.5; // 接触ダメージ
+                    updateUI();
+                    if (player.hp <= 0) {
+                        isGameOver = true;
+                        document.getElementById('game-over').style.display = 'block';
+                    }
+                }
+            }
+            
+            // 経験値ジェムの更新（磁石効果）
+            for (let i = gems.length - 1; i >= 0; i--) {
+                gems[i].draw();
+                const dist = Math.hypot(player.x - gems[i].x, player.y - gems[i].y);
+                
+                if (dist < player.radius + 60) { // 引き寄せ範囲
+                    gems[i].x += (player.x - gems[i].x) / dist * 6;
+                    gems[i].y += (player.y - gems[i].y) / dist * 6;
+                    
+                    if (dist < player.radius + gems[i].radius) {
+                        player.addExp(1);
+                        gems.splice(i, 1);
+                    }
+                }
+            }
+        }
+
+        // ゲームスタート
+        updateUI();
+        requestAnimationFrame(gameLoop);
+
+    </script>
+</body>
+</html>
