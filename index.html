@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ダダサバ風サバイバルゲーム - 広大マップ版</title>
+    <title>ダダサバ風サバイバルゲーム - インフレ突破版</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #1a252f; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
         canvas { display: block; }
@@ -28,6 +28,7 @@
         .skill-desc { font-size: 13px; margin-top: 5px; color: #bdc3c7; }
         
         #game-over { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #e74c3c; font-family: sans-serif; font-size: 40px; font-weight: bold; text-shadow: 2px 2px 4px black; display: none; text-align: center; pointer-events: auto; z-index: 30; background: rgba(0,0,0,0.7); padding: 20px; border-radius: 10px; }
+        #boss-warning { position: absolute; top: 30%; left: 0; width: 100%; text-align: center; color: #e74c3c; font-size: 36px; font-weight: bold; text-shadow: 0 0 15px red, 2px 2px 5px black; display: none; z-index: 25; font-family: sans-serif; }
     </style>
 </head>
 <body>
@@ -45,6 +46,7 @@
             <div id="skill-choices"></div>
         </div>
 
+        <div id="boss-warning">⚠️ 巨大ボス襲来 ⚠️</div>
         <div id="game-over">GAME OVER<br><span style="font-size: 20px; color: white;">画面タップで再挑戦</span></div>
     </div>
 
@@ -52,11 +54,7 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         let width, height;
-
-        // 世界の広さ (画面の何倍も広い)
-        const WORLD_WIDTH = 4000;
-        const WORLD_HEIGHT = 4000;
-        // カメラ座標
+        const WORLD_WIDTH = 4000; const WORLD_HEIGHT = 4000;
         let camera = { x: 0, y: 0 };
 
         function resize() { width = window.innerWidth; height = window.innerHeight; canvas.width = width; canvas.height = height; }
@@ -66,91 +64,100 @@
             return x + radius > camera.x && x - radius < camera.x + width && y + radius > camera.y && y - radius < camera.y + height;
         }
 
-        // --- 入力処理 ---
         const joystickBase = document.getElementById('joystick-base');
         const joystickStick = document.getElementById('joystick-stick');
         let isTouching = false; let joyOrigin = { x: 0, y: 0 }; let joyVector = { x: 0, y: 0 }; 
 
-        document.addEventListener('touchstart', handleStart, {passive: false});
-        document.addEventListener('touchmove', handleMove, {passive: false});
-        document.addEventListener('touchend', handleEnd);
-        document.addEventListener('mousedown', handleStart);
-        document.addEventListener('mousemove', handleMove);
-        document.addEventListener('mouseup', handleEnd);
+        document.addEventListener('touchstart', handleStart, {passive: false}); document.addEventListener('touchmove', handleMove, {passive: false});
+        document.addEventListener('touchend', handleEnd); document.addEventListener('mousedown', handleStart);
+        document.addEventListener('mousemove', handleMove); document.addEventListener('mouseup', handleEnd);
 
         function handleStart(e) {
             if(isPaused || isGameOver || e.target.closest('#level-up-modal') || e.target.closest('#game-over')) return;
             e.preventDefault(); isTouching = true;
-            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            joyOrigin = { x: clientX, y: clientY };
-            joystickBase.style.display = 'block'; joystickBase.style.left = clientX + 'px'; joystickBase.style.top = clientY + 'px';
-            updateJoystick(clientX, clientY);
+            const cx = e.touches ? e.touches[0].clientX : e.clientX; const cy = e.touches ? e.touches[0].clientY : e.clientY;
+            joyOrigin = { x: cx, y: cy }; joystickBase.style.display = 'block'; joystickBase.style.left = cx + 'px'; joystickBase.style.top = cy + 'px';
+            updateJoystick(cx, cy);
         }
         function handleMove(e) {
             if (!isTouching || isPaused || isGameOver) return; e.preventDefault();
             updateJoystick(e.touches ? e.touches[0].clientX : e.clientX, e.touches ? e.touches[0].clientY : e.clientY);
         }
         function handleEnd() { isTouching = false; joyVector = { x: 0, y: 0 }; joystickBase.style.display = 'none'; joystickStick.style.transform = `translate(0px, 0px)`; }
-        function updateJoystick(clientX, clientY) {
-            let dx = clientX - joyOrigin.x, dy = clientY - joyOrigin.y, dist = Math.hypot(dx, dy), max = 60; 
+        function updateJoystick(cx, cy) {
+            let dx = cx - joyOrigin.x, dy = cy - joyOrigin.y, dist = Math.hypot(dx, dy), max = 60; 
             if (dist > max) { dx = (dx / dist) * max; dy = (dy / dist) * max; }
             joystickStick.style.transform = `translate(${dx}px, ${dy}px)`;
             if (dist > 0) { joyVector.x = dx / max; joyVector.y = dy / max; } else { joyVector = { x: 0, y: 0 }; }
         }
-        const keys = {};
-        window.addEventListener('keydown', e => keys[e.key] = true); window.addEventListener('keyup', e => keys[e.key] = false);
+        const keys = {}; window.addEventListener('keydown', e => keys[e.key] = true); window.addEventListener('keyup', e => keys[e.key] = false);
 
         function drawHealthBar(ctx, x, y, hp, maxHp, barWidth, isPlayer = false) {
             const pct = Math.max(0, hp / maxHp); const barHeight = 4;
             ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; ctx.fillRect(x - barWidth/2, y, barWidth, barHeight);
-            ctx.fillStyle = isPlayer ? '#2ecc71' : (pct > 0.5 ? '#e74c3c' : '#c0392b');
-            ctx.fillRect(x - barWidth/2, y, barWidth * pct, barHeight);
+            ctx.fillStyle = isPlayer ? '#2ecc71' : (pct > 0.5 ? '#e74c3c' : '#c0392b'); ctx.fillRect(x - barWidth/2, y, barWidth * pct, barHeight);
         }
 
-        // --- スキルDB ---
+        // --- スキルDB (上限Lvを撤廃・または無視します) ---
         const SKILL_DB = {
-            kunai: { name: 'クナイ', desc: '最も近い敵を自動で狙い撃つ', maxLevel: 5 },
-            forcefield: { name: 'フォースフィールド', desc: '周囲に継続ダメージエリアを発生', maxLevel: 5 },
-            guardian: { name: 'ガーディアン', desc: '周囲を回転する刃で敵を弾く', maxLevel: 5 },
-            lightning: { name: '雷発生器', desc: 'ランダムな敵に雷を落とす', maxLevel: 5 },
-            rpg: { name: 'ロケット', desc: '着弾で爆発するロケットを発射', maxLevel: 5 },
-            brick: { name: 'レンガ', desc: '上空に放り投げ、落下ダメージを与える', maxLevel: 5 },
-            soccer: { name: 'サッカーボール', desc: '画面や敵に反射して飛び回る', maxLevel: 5 },
-            drill: { name: 'ドリル', desc: '敵を貫通し画面端で反射する矢', maxLevel: 5 },
-            boomerang: { name: 'ブーメラン', desc: '一定距離で手元に戻る刃を投げる', maxLevel: 5 },
-            molotov: { name: '火炎瓶', desc: '地面に燃え続ける炎エリアを作る', maxLevel: 5 },
-            atkUp: { name: '強力銃弾', desc: '全ての攻撃力がアップ (+20%)', maxLevel: 5 },
-            speedUp: { name: 'スニーカー', desc: '移動速度がアップ (+15%)', maxLevel: 5 },
-            hpUp: { name: 'フィットネス', desc: '最大HPがアップ (+20%)', maxLevel: 5 },
-            armor: { name: '防弾チョッキ', desc: '受けるダメージを軽減', maxLevel: 5 },
-            expUp: { name: '経験値の書', desc: '獲得する経験値がアップ (+20%)', maxLevel: 5 }
+            kunai: { name: 'クナイ', desc: '最も近い敵を自動で狙う' }, forcefield: { name: 'フォース', desc: '周囲に継続ダメージ' },
+            guardian: { name: 'ガーディアン', desc: '周囲を回転する刃' }, lightning: { name: '雷発生器', desc: 'ランダムな敵に雷' },
+            rpg: { name: 'ロケット', desc: '着弾で爆発するロケット' }, brick: { name: 'レンガ', desc: '放り投げて落下ダメージ' },
+            soccer: { name: 'サッカー', desc: '画面を反射して飛び回る' }, drill: { name: 'ドリル', desc: '敵を貫通し壁で反射' },
+            boomerang: { name: 'ブーメラン', desc: '手元に戻る刃を投げる' }, molotov: { name: '火炎瓶', desc: '地面に炎エリア' },
+            atkUp: { name: '強力銃弾', desc: '攻撃力アップ (+20%)' }, speedUp: { name: 'スニーカー', desc: '移動速度アップ (+15%)' },
+            hpUp: { name: 'フィットネス', desc: '最大HPアップ (+20%)' }, armor: { name: '防弾チョッキ', desc: '受けるダメージを軽減' },
+            expUp: { name: '経験値の書', desc: '獲得経験値アップ (+20%)' }
         };
+
+        // --- ダメージポップアップ文字 ---
+        class DamageText {
+            constructor(x, y, amount, color) {
+                this.x = x + (Math.random()-0.5)*15;
+                this.y = y + (Math.random()-0.5)*10;
+                this.amount = Math.ceil(amount);
+                this.color = color;
+                this.life = 40; this.maxLife = 40;
+                this.vy = -1.5; // 上へフワッと登る
+            }
+            update() { this.y += this.vy; this.life--; }
+            draw() {
+                if(!isVisible(this.x, this.y, 20)) return;
+                let cx = this.x - camera.x, cy = this.y - camera.y;
+                ctx.globalAlpha = this.life / this.maxLife;
+                ctx.fillStyle = this.color;
+                // フォントを小さめに設定（12px）
+                ctx.font = 'bold 12px sans-serif'; 
+                ctx.strokeStyle = 'black';
+                ctx.lineWidth = 2;
+                ctx.textAlign = 'center';
+                ctx.strokeText(this.amount, cx, cy);
+                ctx.fillText(this.amount, cx, cy);
+                ctx.globalAlpha = 1.0;
+            }
+        }
 
         class Player {
             constructor() {
-                this.x = WORLD_WIDTH / 2; this.y = WORLD_HEIGHT / 2; 
-                this.radius = 15; this.color = '#3498db';
+                this.x = WORLD_WIDTH / 2; this.y = WORLD_HEIGHT / 2; this.radius = 15; this.color = '#3498db';
                 this.baseSpeed = 3.5; this.baseMaxHp = 100; this.hp = this.baseMaxHp;
-                this.level = 1; this.exp = 0; this.expToNext = 5;
-                this.skills = { kunai: 1 };
+                this.level = 1; this.exp = 0; this.expToNext = 5; this.skills = { kunai: 1 };
+                this.bossExpBonus = 0;
+                this.accumulatedDamage = 0; // 接触ダメージなど微小なダメージを蓄積してポップアップさせる用
             }
             get speed() { return this.baseSpeed * (1 + (this.skills.speedUp || 0) * 0.15); }
             get maxHp() { return this.baseMaxHp * (1 + (this.skills.hpUp || 0) * 0.2); }
             get atkMult() { return 1 + (this.skills.atkUp || 0) * 0.2; }
-            get expMult() { return 1 + (this.skills.expUp || 0) * 0.2; }
+            get expMult() { return (1 + (this.skills.expUp || 0) * 0.2 + (this.level - 1) * 0.05 + this.bossExpBonus); }
 
             update() {
-                let moveX = joyVector.x, moveY = joyVector.y;
+                let mx = joyVector.x, my = joyVector.y;
                 if (!isTouching) {
-                    moveX = (keys['d']||keys['ArrowRight']?1:0) - (keys['a']||keys['ArrowLeft']?1:0);
-                    moveY = (keys['s']||keys['ArrowDown']?1:0) - (keys['w']||keys['ArrowUp']?1:0);
-                    if (moveX !== 0 && moveY !== 0) { moveX /= Math.SQRT2; moveY /= Math.SQRT2; }
+                    mx = (keys['d']||keys['ArrowRight']?1:0) - (keys['a']||keys['ArrowLeft']?1:0); my = (keys['s']||keys['ArrowDown']?1:0) - (keys['w']||keys['ArrowUp']?1:0);
+                    if (mx !== 0 && my !== 0) { mx /= Math.SQRT2; my /= Math.SQRT2; }
                 }
-                this.x += moveX * this.speed; this.y += moveY * this.speed;
-                // 世界の端から出ないようにする
-                this.x = Math.max(this.radius, Math.min(WORLD_WIDTH - this.radius, this.x));
-                this.y = Math.max(this.radius, Math.min(WORLD_HEIGHT - this.radius, this.y));
+                this.x = Math.max(this.radius, Math.min(WORLD_WIDTH - this.radius, this.x + mx * this.speed));
+                this.y = Math.max(this.radius, Math.min(WORLD_HEIGHT - this.radius, this.y + my * this.speed));
             }
             draw() {
                 let cx = this.x - camera.x, cy = this.y - camera.y;
@@ -158,12 +165,20 @@
                     ctx.beginPath(); ctx.arc(cx, cy, 50 + this.skills.forcefield * 10, 0, Math.PI * 2);
                     ctx.fillStyle = 'rgba(52, 152, 219, 0.2)'; ctx.fill(); ctx.strokeStyle = 'rgba(52, 152, 219, 0.5)'; ctx.lineWidth = 2; ctx.stroke();
                 }
-                ctx.beginPath(); ctx.arc(cx, cy, this.radius, 0, Math.PI * 2);
-                ctx.fillStyle = this.color; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+                ctx.beginPath(); ctx.arc(cx, cy, this.radius, 0, Math.PI * 2); ctx.fillStyle = this.color; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
                 drawHealthBar(ctx, cx, cy - this.radius - 10, this.hp, this.maxHp, 40, true);
             }
             takeDamage(amount) {
-                this.hp -= amount * (1 - (this.skills.armor || 0) * 0.1);
+                let actualDamage = amount * (1 - (this.skills.armor || 0) * 0.1);
+                this.hp -= actualDamage;
+                this.accumulatedDamage += actualDamage;
+                
+                // 蓄積ダメージが2を超えたらまとめてプレイヤー側に赤いポップアップ表示
+                if (this.accumulatedDamage >= 2) {
+                    damageTexts.push(new DamageText(this.x, this.y - 20, this.accumulatedDamage, '#e74c3c'));
+                    this.accumulatedDamage = 0;
+                }
+                
                 if (this.hp <= 0) gameOver();
             }
             addExp(amount) {
@@ -179,7 +194,6 @@
 
         class Enemy {
             constructor(typeStats) {
-                // カメラの外枠からスポーンさせる
                 const side = Math.floor(Math.random() * 4);
                 if (side === 0) { this.x = camera.x + Math.random() * width; this.y = camera.y - 40; } 
                 else if (side === 1) { this.x = camera.x + width + 40; this.y = camera.y + Math.random() * height; }
@@ -189,6 +203,7 @@
                 this.radius = typeStats.radius; this.speed = typeStats.speed * (Math.random() * 0.4 + 0.8);
                 this.color = typeStats.color; this.maxHp = typeStats.hp; this.hp = this.maxHp;
                 this.damage = typeStats.damage; this.expValue = typeStats.exp;
+                this.isSpecialBoss = typeStats.isSpecialBoss || false;
             }
             update(tx, ty) {
                 const dist = Math.hypot(tx - this.x, ty - this.y);
@@ -198,46 +213,45 @@
                 if(!isVisible(this.x, this.y, this.radius)) return;
                 let cx = this.x - camera.x, cy = this.y - camera.y;
                 ctx.beginPath(); ctx.arc(cx, cy, this.radius, 0, Math.PI * 2); ctx.fillStyle = this.color; ctx.fill();
+                if (this.isSpecialBoss) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke(); }
                 if (this.hp < this.maxHp) drawHealthBar(ctx, cx, cy - this.radius - 8, this.hp, this.maxHp, this.radius * 2);
+            }
+            // 敵がダメージを受けた際の処理（HP減少＆ポップアップ）
+            takeDamage(amount) {
+                this.hp -= amount;
+                // ボス以外は白、ボスは少し目立つ色でダメージポップアップ
+                let color = this.isSpecialBoss ? '#f1c40f' : '#ffffff';
+                damageTexts.push(new DamageText(this.x, this.y - this.radius, amount, color));
             }
         }
 
-        // --- フィールドアイテム（爆弾、肉、磁石） ---
         class FieldItem {
-            constructor(x, y, type) {
-                this.x = x; this.y = y; this.type = type; this.radius = 16;
-            }
+            constructor(x, y, type) { this.x = x; this.y = y; this.type = type; this.radius = 16; }
             draw() {
                 if(!isVisible(this.x, this.y, this.radius)) return;
                 let cx = this.x - camera.x, cy = this.y - camera.y;
                 ctx.beginPath(); ctx.arc(cx, cy, this.radius, 0, Math.PI*2);
                 ctx.fillStyle = this.type === 'bomb' ? '#2c3e50' : (this.type === 'meat' ? '#e74c3c' : '#3498db'); ctx.fill();
                 ctx.strokeStyle = '#f1c40f'; ctx.lineWidth = 2; ctx.stroke();
-                
                 ctx.fillStyle = '#fff'; ctx.font = '16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                let icon = this.type === 'bomb' ? '💣' : (this.type === 'meat' ? '🍖' : '🧲');
-                ctx.fillText(icon, cx, cy + 1);
+                ctx.fillText(this.type === 'bomb' ? '💣' : (this.type === 'meat' ? '🍖' : '🧲'), cx, cy + 1);
             }
         }
 
         class Projectile {
             constructor(x, y, vx, vy, speed, radius, color, damage, life, type = 'normal', pierce = 0) {
-                this.x = x; this.y = y; this.radius = radius; this.color = color;
-                this.damage = damage; this.life = life; this.maxLife = life;
+                this.x = x; this.y = y; this.radius = radius; this.color = color; this.damage = damage; this.life = life; this.maxLife = life;
                 this.type = type; this.pierce = pierce; this.hitEnemies = new Set(); this.speed = speed;
                 const dist = Math.hypot(vx, vy);
-                if(dist > 0) { this.vx = (vx / dist) * speed; this.vy = (vy / dist) * speed; } else { this.vx = 0; this.vy = speed; }
+                if(dist > 0) { this.vx = (vx/dist)*speed; this.vy = (vy/dist)*speed; } else { this.vx = 0; this.vy = speed; }
             }
             update() {
                 if(this.type === 'gravity') this.vy += 0.3;
                 else if(this.type === 'boomerang' && this.life < this.maxLife * 0.6) {
                     const dist = Math.hypot(player.x - this.x, player.y - this.y);
-                    if(dist > 0) { this.vx = ((player.x - this.x) / dist) * this.speed; this.vy = ((player.y - this.y) / dist) * this.speed; }
-                    this.hitEnemies.clear();
+                    if(dist > 0) { this.vx = ((player.x-this.x)/dist)*this.speed; this.vy = ((player.y-this.y)/dist)*this.speed; } this.hitEnemies.clear();
                 }
                 this.x += this.vx; this.y += this.vy; this.life--;
-                
-                // ドリルやサッカーの画面端反射（世界ではなくカメラの端で反射させる）
                 if(this.type === 'bounce') {
                     if (this.x - this.radius < camera.x || this.x + this.radius > camera.x + width) { this.vx *= -1; this.x = Math.max(camera.x+this.radius, Math.min(camera.x+width-this.radius, this.x)); }
                     if (this.y - this.radius < camera.y || this.y + this.radius > camera.y + height) { this.vy *= -1; this.y = Math.max(camera.y+this.radius, Math.min(camera.y+height-this.radius, this.y)); }
@@ -252,22 +266,20 @@
         class Effect {
             constructor(x, y, radius, color, duration, type = 'explosion', damage = 0) {
                 this.x = x; this.y = y; this.maxRadius = radius; this.radius = type === 'firezone' ? radius : 0;
-                this.color = color; this.maxDuration = duration; this.duration = duration;
-                this.type = type; this.damage = damage; this.hasHit = false;
+                this.color = color; this.maxDuration = duration; this.duration = duration; this.type = type; this.damage = damage; this.hasHit = false;
             }
             update() { this.duration--; if(this.type !== 'firezone') this.radius = this.maxRadius * (1 - this.duration / this.maxDuration); }
             draw() {
-                if(!isVisible(this.x, this.y, this.radius)) return;
-                ctx.beginPath(); ctx.arc(this.x - camera.x, this.y - camera.y, this.radius, 0, Math.PI * 2);
-                ctx.fillStyle = this.color; ctx.globalAlpha = this.type === 'firezone' ? 0.5 : (this.duration / this.maxDuration);
-                ctx.fill(); ctx.globalAlpha = 1.0;
+                if(this.maxRadius < 1000 && !isVisible(this.x, this.y, this.radius)) return; 
+                let cx = this.maxRadius >= 1000 ? this.x : this.x - camera.x; let cy = this.maxRadius >= 1000 ? this.y : this.y - camera.y;
+                ctx.beginPath(); ctx.arc(cx, cy, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color; ctx.globalAlpha = this.type === 'firezone' ? 0.5 : (this.duration / this.maxDuration); ctx.fill(); ctx.globalAlpha = 1.0;
             }
         }
 
         class Gem {
             constructor(x, y, value) {
-                this.x = x; this.y = y; this.radius = 5 + (value > 1 ? 3 : 0);
-                this.color = value > 1 ? '#3498db' : '#2ecc71'; this.value = value; this.magnetized = false;
+                this.x = x; this.y = y; this.radius = 5 + (value > 1 ? 3 : 0); this.color = value > 1 ? '#3498db' : '#2ecc71'; this.value = value; this.magnetized = false;
             }
             draw() {
                 if(!isVisible(this.x, this.y, this.radius)) return;
@@ -277,13 +289,16 @@
             }
         }
 
-        let player, enemies, projectiles, effects, gems, items;
+        let player, enemies, projectiles, effects, gems, items, damageTexts;
         let isGameOver = false, isPaused = false, frameCount = 0, gameTime = 0;
         let cooldowns = {};
+        
+        let globalEnemyStatMultiplier = 1; let lastWaveResetTime = 0; let isBossStage = false;
 
         function initGame() {
-            player = new Player(); enemies = []; projectiles = []; effects = []; gems = []; items = [];
+            player = new Player(); enemies = []; projectiles = []; effects = []; gems = []; items = []; damageTexts = [];
             isGameOver = false; isPaused = false; frameCount = 0; gameTime = 0;
+            globalEnemyStatMultiplier = 1; lastWaveResetTime = 0; isBossStage = false;
             for(let key in SKILL_DB) cooldowns[key] = 0;
             document.getElementById('game-over').style.display = 'none'; document.getElementById('level-up-modal').style.display = 'none';
             document.getElementById('exp-bar').style.width = '0%'; requestAnimationFrame(gameLoop);
@@ -294,34 +309,45 @@
             fast: { radius: 10, speed: 1.8, color: '#f1c40f', hp: 2, damage: 3, exp: 1 },
             swarm: { radius: 8, speed: 1.3, color: '#9b59b6', hp: 1, damage: 2, exp: 0.5 },
             tank: { radius: 20, speed: 0.6, color: '#8e44ad', hp: 20, damage: 15, exp: 3 },
-            boss: { radius: 35, speed: 0.8, color: '#000', hp: 200, damage: 30, exp: 20 }
+            boss: { radius: 35, speed: 0.8, color: '#000', hp: 200, damage: 30, exp: 20 },
+            special_boss: { radius: 80, speed: 1.2, color: '#8b0000', hp: 5000, damage: 50, exp: 2000, isSpecialBoss: true }
         };
 
         function spawnEnemies() {
-            let hpMult = 1 + (gameTime / 60) * 0.8;
-            let interval = Math.max(8, 60 - Math.floor(gameTime / 10)); 
-            let count = 1 + Math.floor(gameTime / 25);
+            if (!isBossStage && gameTime > 0 && gameTime % 600 === 0 && frameCount % 60 === 0) {
+                isBossStage = true;
+                effects.push(new Effect(width/2, height/2, Math.max(width, height)*2, 'rgba(255, 0, 0, 0.8)', 60, 'explosion', 0));
+                enemies = []; 
+                const warning = document.getElementById('boss-warning'); warning.style.display = 'block'; setTimeout(() => { warning.style.display = 'none'; }, 4000);
+                let stats = {...ENEMY_TYPES['special_boss']}; stats.hp *= globalEnemyStatMultiplier; stats.damage *= globalEnemyStatMultiplier; enemies.push(new Enemy(stats));
+                return;
+            }
+
+            if (isBossStage) return;
+
+            let waveTime = gameTime - lastWaveResetTime;
+            let hpMult = (1 + (waveTime / 60) * 0.8) * globalEnemyStatMultiplier;
+            let interval = Math.max(8, 60 - Math.floor(waveTime / 10)); 
+            let count = 1 + Math.floor(waveTime / 25);
 
             let types = ['normal'];
-            if (gameTime > 30) types.push('fast'); if (gameTime > 60) types.push('swarm', 'swarm');
-            if (gameTime > 120) types.push('tank'); if (gameTime > 180) types = ['fast', 'swarm', 'tank']; 
+            if (waveTime > 30) types.push('fast'); if (waveTime > 60) types.push('swarm', 'swarm');
+            if (waveTime > 120) types.push('tank'); if (waveTime > 180) types = ['fast', 'swarm', 'tank']; 
 
             if (frameCount % interval === 0) {
                 for(let i=0; i<count; i++) {
                     const stats = {...ENEMY_TYPES[types[Math.floor(Math.random() * types.length)]]};
-                    stats.hp *= hpMult; enemies.push(new Enemy(stats));
+                    stats.hp *= hpMult; stats.damage *= globalEnemyStatMultiplier; enemies.push(new Enemy(stats));
                 }
             }
-            if (gameTime > 0 && gameTime % 60 === 0 && frameCount % 60 === 0) { 
-                const stats = {...ENEMY_TYPES['boss']}; stats.hp *= hpMult; enemies.push(new Enemy(stats));
+            if (waveTime > 0 && waveTime % 60 === 0 && frameCount % 60 === 0) { 
+                const stats = {...ENEMY_TYPES['boss']}; stats.hp *= hpMult; stats.damage *= globalEnemyStatMultiplier; enemies.push(new Enemy(stats));
             }
             
-            // --- お助けアイテムのスポーン (60秒ごと) ---
             if (gameTime > 0 && gameTime % 60 === 0 && frameCount % 60 === 0) {
-                const dist = 600; // プレイヤーの少し遠くに配置
+                const dist = 600;
                 ['bomb', 'meat', 'magnet'].forEach(type => {
-                    let rx = player.x + (Math.random() - 0.5) * dist * 2;
-                    let ry = player.y + (Math.random() - 0.5) * dist * 2;
+                    let rx = player.x + (Math.random() - 0.5) * dist * 2, ry = player.y + (Math.random() - 0.5) * dist * 2;
                     items.push(new FieldItem(Math.max(50, Math.min(WORLD_WIDTH-50, rx)), Math.max(50, Math.min(WORLD_HEIGHT-50, ry)), type));
                 });
             }
@@ -339,7 +365,7 @@
 
         function fireWeapons() {
             const mult = player.atkMult;
-            if (player.skills.kunai && frameCount - cooldowns.kunai >= Math.max(15, 60 - player.skills.kunai * 10)) {
+            if (player.skills.kunai && frameCount - cooldowns.kunai >= Math.max(10, 60 - player.skills.kunai * 10)) {
                 let t = getClosestEnemy(); if (t) {
                     let dmg = 3 * mult * (1 + player.skills.kunai*0.2);
                     projectiles.push(new Projectile(player.x, player.y, t.x - player.x, t.y - player.y, 12, 5, '#fff', dmg, 100));
@@ -348,57 +374,62 @@
                 }
             }
             if (player.skills.guardian) {
+                // レベル無限だとガーディアンの刃が無限に増えます（PCスペック注意）
                 let count = 1 + player.skills.guardian, dmg = 2 * mult, speed = 0.05 + player.skills.guardian*0.01;
                 for(let i=0; i<count; i++) {
                     let angle = (frameCount * speed) + (i * (Math.PI * 2 / count));
                     let bx = player.x + Math.cos(angle) * 60, by = player.y + Math.sin(angle) * 60;
                     ctx.beginPath(); ctx.arc(bx - camera.x, by - camera.y, 8, 0, Math.PI * 2); ctx.fillStyle = '#e67e22'; ctx.fill();
-                    for (let e of enemies) { if (Math.hypot(bx - e.x, by - e.y) < 8 + e.radius) { e.hp -= dmg; e.x += Math.cos(angle)*10; e.y += Math.sin(angle)*10; } }
+                    for (let e of enemies) { 
+                        if (Math.hypot(bx - e.x, by - e.y) < 8 + e.radius) { 
+                            e.takeDamage(dmg); e.x += Math.cos(angle)*10; e.y += Math.sin(angle)*10; 
+                        } 
+                    }
                 }
             }
             if (player.skills.forcefield && frameCount % 30 === 0) {
                 let r = 50 + player.skills.forcefield * 10, dmg = 1.5 * mult * (1 + player.skills.forcefield*0.3);
-                for (let e of enemies) if (Math.hypot(player.x - e.x, player.y - e.y) < r + e.radius) e.hp -= dmg;
+                for (let e of enemies) if (Math.hypot(player.x - e.x, player.y - e.y) < r + e.radius) e.takeDamage(dmg);
             }
-            if (player.skills.lightning && frameCount - cooldowns.lightning >= Math.max(30, 120 - player.skills.lightning * 15) && enemies.length > 0) {
+            if (player.skills.lightning && frameCount - cooldowns.lightning >= Math.max(15, 120 - player.skills.lightning * 15) && enemies.length > 0) {
                 for(let i=0; i<Math.ceil(player.skills.lightning/2); i++) {
                     let t = enemies[Math.floor(Math.random() * enemies.length)];
                     if(t) {
-                        t.hp -= 15 * mult * (1 + player.skills.lightning*0.5);
+                        t.takeDamage(15 * mult * (1 + player.skills.lightning*0.5));
                         effects.push(new Effect(t.x, t.y, 25, 'rgba(241, 196, 15, 0.8)', 15, 'lightning'));
                         ctx.beginPath(); ctx.moveTo(t.x - camera.x, t.y - camera.y - height); ctx.lineTo(t.x - camera.x, t.y - camera.y); ctx.strokeStyle = '#f1c40f'; ctx.lineWidth = 3; ctx.stroke();
                     }
                 }
                 cooldowns.lightning = frameCount;
             }
-            if (player.skills.rpg && frameCount - cooldowns.rpg >= Math.max(60, 180 - player.skills.rpg * 20)) {
+            if (player.skills.rpg && frameCount - cooldowns.rpg >= Math.max(30, 180 - player.skills.rpg * 20)) {
                 let t = getClosestEnemy(); if (t) {
                     projectiles.push(new Projectile(player.x, player.y, t.x - player.x, t.y - player.y, 6, 8, '#c0392b', 12 * mult * (1+player.skills.rpg*0.4), 150, 'rpg'));
                     cooldowns.rpg = frameCount;
                 }
             }
-            if (player.skills.brick && frameCount - cooldowns.brick >= 120 - player.skills.brick * 15) {
+            if (player.skills.brick && frameCount - cooldowns.brick >= Math.max(20, 120 - player.skills.brick * 15)) {
                 for(let i=0; i<player.skills.brick; i++) projectiles.push(new Projectile(player.x, player.y, (Math.random()-0.5)*4, -8-Math.random()*3, 1, 9, '#d35400', 8 * mult, 100, 'gravity', 99));
                 cooldowns.brick = frameCount;
             }
-            if (player.skills.soccer && frameCount - cooldowns.soccer >= 180 - player.skills.soccer * 20) {
+            if (player.skills.soccer && frameCount - cooldowns.soccer >= Math.max(30, 180 - player.skills.soccer * 20)) {
                 for(let i=0; i<Math.ceil(player.skills.soccer/2); i++) {
                     let a = Math.random() * Math.PI * 2; projectiles.push(new Projectile(player.x, player.y, Math.cos(a), Math.sin(a), 7, 10, '#ecf0f1', 6 * mult, 200, 'bounce', 3 + player.skills.soccer));
                 }
                 cooldowns.soccer = frameCount;
             }
-            if (player.skills.drill && frameCount - cooldowns.drill >= 200 - player.skills.drill * 20) {
+            if (player.skills.drill && frameCount - cooldowns.drill >= Math.max(40, 200 - player.skills.drill * 20)) {
                 let t = getClosestEnemy(); if(t) projectiles.push(new Projectile(player.x, player.y, t.x-player.x, t.y-player.y, 10 + player.skills.drill, 6, '#34495e', 4 * mult, 300, 'bounce', 999));
                 cooldowns.drill = frameCount;
             }
-            if (player.skills.boomerang && frameCount - cooldowns.boomerang >= 100 - player.skills.boomerang * 10) {
+            if (player.skills.boomerang && frameCount - cooldowns.boomerang >= Math.max(20, 100 - player.skills.boomerang * 10)) {
                 let t = getClosestEnemy(); if (t) {
                     projectiles.push(new Projectile(player.x, player.y, t.x-player.x, t.y-player.y, 8, 7, '#95a5a6', 5 * mult, 70, 'boomerang', 99));
                     if(player.skills.boomerang >= 3) projectiles.push(new Projectile(player.x, player.y, -(t.x-player.x), -(t.y-player.y), 8, 7, '#95a5a6', 5 * mult, 70, 'boomerang', 99));
                     cooldowns.boomerang = frameCount;
                 }
             }
-            if (player.skills.molotov && frameCount - cooldowns.molotov >= 180 - player.skills.molotov * 20) {
+            if (player.skills.molotov && frameCount - cooldowns.molotov >= Math.max(40, 180 - player.skills.molotov * 20)) {
                 for(let i=0; i<1 + Math.floor(player.skills.molotov/2); i++) {
                     effects.push(new Effect(player.x + (Math.random()-0.5)*250, player.y + (Math.random()-0.5)*250, 40 + player.skills.molotov*10, 'rgba(230, 126, 34, 0.4)', 180, 'firezone', 1.5 * mult));
                 }
@@ -408,12 +439,16 @@
 
         function triggerLevelUp() {
             isPaused = true; joystickBase.style.display = 'none';
-            let available = []; for (let id in SKILL_DB) if ((player.skills[id] || 0) < SKILL_DB[id].maxLevel) available.push(id);
-            let choices = []; while (choices.length < 3 && available.length > 0) choices.push(available.splice(Math.floor(Math.random() * available.length), 1)[0]);
+            // スキルレベル上限を撤廃！すべてのスキルが何回でも選べます
+            let available = Object.keys(SKILL_DB); 
+            
+            let choices = []; 
+            while (choices.length < 3 && available.length > 0) {
+                choices.push(available.splice(Math.floor(Math.random() * available.length), 1)[0]);
+            }
             
             const container = document.getElementById('skill-choices'); container.innerHTML = '';
-            if(choices.length === 0) addSkillChoiceToDOM('heal', 'HP全回復', '体力を100%回復', () => { player.hp = player.maxHp; closeLevelUp(); });
-            else choices.forEach(id => {
+            choices.forEach(id => {
                 let db = SKILL_DB[id], nextLv = (player.skills[id] || 0) + 1;
                 addSkillChoiceToDOM(id, `${db.name} (Lv${nextLv})`, db.desc, () => {
                     player.skills[id] = nextLv; if(id === 'hpUp') player.hp += player.baseMaxHp * 0.2; closeLevelUp();
@@ -421,6 +456,7 @@
             });
             document.getElementById('level-up-modal').style.display = 'flex';
         }
+        
         function addSkillChoiceToDOM(id, name, desc, onClick) {
             const card = document.createElement('div'); card.className = 'skill-card'; card.innerHTML = `<div class="skill-name">${name}</div><div class="skill-desc">${desc}</div>`; card.onclick = onClick; document.getElementById('skill-choices').appendChild(card);
         }
@@ -437,36 +473,18 @@
             for(let x = offX; x < width; x += size) { ctx.moveTo(x, 0); ctx.lineTo(x, height); }
             for(let y = offY; y < height; y += size) { ctx.moveTo(0, y); ctx.lineTo(width, y); }
             ctx.stroke();
-            
-            // 世界の境界線を赤く引く
-            ctx.strokeStyle = 'rgba(231, 76, 60, 0.5)'; ctx.lineWidth = 5;
-            ctx.strokeRect(-camera.x, -camera.y, WORLD_WIDTH, WORLD_HEIGHT);
+            ctx.strokeStyle = 'rgba(231, 76, 60, 0.5)'; ctx.lineWidth = 5; ctx.strokeRect(-camera.x, -camera.y, WORLD_WIDTH, WORLD_HEIGHT);
         }
 
         function drawMinimap() {
-            const mapW = 120, mapH = 120, pad = 15;
-            const startX = width - mapW - pad, startY = 70; // タイマーの下に配置
-            
+            const mapW = 120, mapH = 120, pad = 15, startX = width - mapW - pad, startY = 70;
             ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(startX, startY, mapW, mapH);
             ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.strokeRect(startX, startY, mapW, mapH);
-            
             const scaleX = mapW / WORLD_WIDTH, scaleY = mapH / WORLD_HEIGHT;
-            
-            // カメラ範囲（自分が見ている場所）
-            ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-            ctx.strokeRect(startX + camera.x * scaleX, startY + camera.y * scaleY, width * scaleX, height * scaleY);
-            
-            // アイテム（黄色）
-            ctx.fillStyle = '#f1c40f';
-            items.forEach(i => { ctx.beginPath(); ctx.arc(startX + i.x * scaleX, startY + i.y * scaleY, 2, 0, Math.PI*2); ctx.fill(); });
-            
-            // ボス（赤色）
-            ctx.fillStyle = '#e74c3c';
-            enemies.forEach(e => { if (e.radius > 20) { ctx.beginPath(); ctx.arc(startX + e.x * scaleX, startY + e.y * scaleY, 3, 0, Math.PI*2); ctx.fill(); } });
-
-            // プレイヤー（水色）
-            ctx.fillStyle = '#3498db';
-            ctx.beginPath(); ctx.arc(startX + player.x * scaleX, startY + player.y * scaleY, 3.5, 0, Math.PI*2); ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.strokeRect(startX + camera.x * scaleX, startY + camera.y * scaleY, width * scaleX, height * scaleY);
+            ctx.fillStyle = '#f1c40f'; items.forEach(i => { ctx.beginPath(); ctx.arc(startX + i.x * scaleX, startY + i.y * scaleY, 2, 0, Math.PI*2); ctx.fill(); });
+            ctx.fillStyle = '#e74c3c'; enemies.forEach(e => { if (e.radius > 20) { ctx.beginPath(); ctx.arc(startX + e.x * scaleX, startY + e.y * scaleY, 3, 0, Math.PI*2); ctx.fill(); } });
+            ctx.fillStyle = '#3498db'; ctx.beginPath(); ctx.arc(startX + player.x * scaleX, startY + player.y * scaleY, 3.5, 0, Math.PI*2); ctx.fill();
         }
 
         function gameLoop(timestamp) {
@@ -474,8 +492,10 @@
             if (isGameOver) return;
             ctx.clearRect(0, 0, width, height);
             
+            // ポーズ中（レベルアップ中）でもダメージテキストなどの描画を維持
             if (isPaused) { 
-                drawBackgroundGrid(); player.draw(); enemies.forEach(e => e.draw()); drawMinimap(); return; 
+                drawBackgroundGrid(); player.draw(); enemies.forEach(e => e.draw()); drawMinimap(); 
+                damageTexts.forEach(dt => dt.draw()); return; 
             }
 
             frameCount++;
@@ -484,26 +504,18 @@
             }
 
             player.update();
-            
-            // カメラをプレイヤーに追従（世界の端を映さないように制限）
-            camera.x = Math.max(0, Math.min(WORLD_WIDTH - width, player.x - width / 2));
-            camera.y = Math.max(0, Math.min(WORLD_HEIGHT - height, player.y - height / 2));
+            camera.x = Math.max(0, Math.min(WORLD_WIDTH - width, player.x - width / 2)); camera.y = Math.max(0, Math.min(WORLD_HEIGHT - height, player.y - height / 2));
+            drawBackgroundGrid(); spawnEnemies(); 
 
-            drawBackgroundGrid();
-            spawnEnemies(); 
-
-            // アイテムの更新と取得判定
             for(let i = items.length - 1; i >= 0; i--) {
                 let it = items[i]; it.draw();
                 if(Math.hypot(player.x - it.x, player.y - it.y) < player.radius + it.radius) {
-                    if(it.type === 'bomb') { // 全敵消滅＋画面フラッシュ
-                        effects.push(new Effect(player.x, player.y, Math.max(width, height)*2, 'rgba(255,255,255,0.9)', 30, 'explosion', 0));
-                        enemies.forEach(e => gems.push(new Gem(e.x, e.y, e.expValue))); enemies = [];
-                    } else if(it.type === 'meat') { // HP50%回復
-                        player.hp = Math.min(player.maxHp, player.hp + player.maxHp * 0.5);
-                    } else if(it.type === 'magnet') { // 全ジェム回収モード
-                        gems.forEach(g => g.magnetized = true);
-                    }
+                    if(it.type === 'bomb') {
+                        effects.push(new Effect(width/2, height/2, Math.max(width, height)*2, 'rgba(255,255,255,0.9)', 30, 'explosion', 0));
+                        enemies.forEach(e => { if(!e.isSpecialBoss) gems.push(new Gem(e.x, e.y, e.expValue)); });
+                        enemies = enemies.filter(e => e.isSpecialBoss); 
+                    } else if(it.type === 'meat') player.hp = Math.min(player.maxHp, player.hp + player.maxHp * 0.5);
+                    else if(it.type === 'magnet') gems.forEach(g => g.magnetized = true);
                     items.splice(i, 1);
                 }
             }
@@ -513,11 +525,10 @@
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 let p = projectiles[i]; p.update(); p.draw();
                 if (p.life <= 0) { projectiles.splice(i, 1); continue; }
-                
                 for (let j = enemies.length - 1; j >= 0; j--) {
                     let e = enemies[j];
                     if (!p.hitEnemies.has(e) && Math.hypot(p.x - e.x, p.y - e.y) < p.radius + e.radius) {
-                        e.hp -= p.damage; p.hitEnemies.add(e); 
+                        e.takeDamage(p.damage); p.hitEnemies.add(e); 
                         if (p.type === 'rpg') effects.push(new Effect(p.x, p.y, 40, 'rgba(231, 76, 60, 0.7)', 20, 'explosion', p.damage));
                         if (p.type === 'bounce') { p.vx *= -1; p.vy *= -1; p.hitEnemies.clear(); }
                         if (p.pierce <= p.hitEnemies.size) { projectiles.splice(i, 1); break; }
@@ -528,18 +539,25 @@
             for (let i = effects.length - 1; i >= 0; i--) {
                 let ef = effects[i]; ef.update(); ef.draw();
                 if (ef.type === 'explosion' && !ef.hasHit) {
-                    for (let e of enemies) if (Math.hypot(ef.x - e.x, ef.y - e.y) < ef.radius) e.hp -= ef.damage * 0.5;
+                    for (let e of enemies) if (Math.hypot(ef.x - e.x, ef.y - e.y) < ef.radius) e.takeDamage(ef.damage * 0.5);
                     ef.hasHit = true;
                 }
                 if (ef.type === 'firezone' && frameCount % 15 === 0) { 
-                    for (let e of enemies) if (Math.hypot(ef.x - e.x, ef.y - e.y) < ef.radius + e.radius) e.hp -= ef.damage;
+                    for (let e of enemies) if (Math.hypot(ef.x - e.x, ef.y - e.y) < ef.radius + e.radius) e.takeDamage(ef.damage);
                 }
                 if (ef.duration <= 0) effects.splice(i, 1);
             }
             
             for (let i = enemies.length - 1; i >= 0; i--) {
                 let e = enemies[i];
-                if (e.hp <= 0) { gems.push(new Gem(e.x, e.y, e.expValue)); enemies.splice(i, 1); continue; }
+                if (e.hp <= 0) { 
+                    gems.push(new Gem(e.x, e.y, e.expValue)); 
+                    if (e.isSpecialBoss) {
+                        isBossStage = false; player.bossExpBonus += 2.0; globalEnemyStatMultiplier *= 3; lastWaveResetTime = gameTime;
+                        effects.push(new Effect(width/2, height/2, Math.max(width, height)*2, 'rgba(255, 255, 255, 0.9)', 60, 'explosion', 0));
+                    }
+                    enemies.splice(i, 1); continue; 
+                }
                 e.update(player.x, player.y); e.draw();
                 if (Math.hypot(player.x - e.x, player.y - e.y) < player.radius + e.radius) player.takeDamage(e.damage / 60);
             }
@@ -549,13 +567,20 @@
                 gems[i].draw();
                 const dist = Math.hypot(player.x - gems[i].x, player.y - gems[i].y);
                 if (gems[i].magnetized || dist < magnetRange) { 
-                    let speed = gems[i].magnetized ? 25 : 10; // 磁石アイテム時は高速吸収
+                    let speed = gems[i].magnetized ? 25 : 10;
                     gems[i].x += (player.x - gems[i].x) / dist * speed; gems[i].y += (player.y - gems[i].y) / dist * speed;
                     if (dist < player.radius + gems[i].radius + speed) { player.addExp(gems[i].value); gems.splice(i, 1); }
                 }
             }
 
-            drawMinimap(); // 最後にミニマップを描画
+            // --- ダメージテキストの更新と描画 ---
+            for (let i = damageTexts.length - 1; i >= 0; i--) {
+                damageTexts[i].update();
+                damageTexts[i].draw();
+                if (damageTexts[i].life <= 0) damageTexts.splice(i, 1);
+            }
+
+            drawMinimap();
         }
         initGame();
     </script>
